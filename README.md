@@ -2,18 +2,24 @@
 
 `rrsync` is a Rust-based command-line tool designed to create efficient, incremental backups leveraging the power of `rsync` and hard links. It aims to provide a robust, policy-driven backup solution, combining the battle-tested efficiency of `rsync` with the safety and modern capabilities of a Rust application.
 
-## Features (Current)
+## Features
 
+*   **Multiple Backup Jobs**: Configure and run multiple backup jobs from a single configuration file.
 *   **Incremental Backups**: Utilizes `rsync`'s `--link-dest` feature to create new backups that are hard-linked to the most recent previous backup, saving significant disk space for unchanged files.
 *   **Timestamped Snapshots**: Each backup is stored in a clearly named, timestamped directory, making it easy to browse and restore specific versions.
-*   **Configurable**: Supports configuration via command-line arguments.
+*   **Retention Policies**: Automatically prunes old backups based on a flexible, tiered retention policy (keep N daily, weekly, monthly, yearly backups).
+*   **Exclusion Patterns**: Exclude specific files or directories from your backups for each job.
+*   **Dry-Run Mode**: Preview what changes `rrsync` will make without actually executing any backup or deletion operations.
 
 ## How it Works
 
 `rrsync` acts as an intelligent orchestrator for the system's native `rsync` binary. When `rrsync` runs, it:
-1.  Identifies the most recent successful backup in the destination.
-2.  Constructs an `rsync` command, using `--link-dest` to point to the previous backup (if one exists).
-3.  Executes the `rsync` command, creating a new, timestamped backup directory that uses hard links for unchanged files.
+1.  Parses a `config.toml` file to load one or more backup jobs.
+2.  For each job:
+    a. Identifies the most recent successful backup in the destination.
+    b. Constructs an `rsync` command, using `--link-dest` to point to the previous backup and applying any exclusion rules.
+    c. Executes the `rsync` command to create a new, timestamped backup.
+    d. Applies the configured retention policy to prune old backups in the destination directory.
 
 ## Usage
 
@@ -22,11 +28,52 @@
 *   Rust toolchain (stable)
 *   `rsync` installed and available in your system's PATH.
 
-### Build and Run
+### 1. Create a Configuration File
+
+Create a `config.toml` file to define your backup jobs.
+
+**Example `config.toml`:**
+```toml
+# First backup job: Backup documents with a detailed retention policy
+[[jobs]]
+name = "Documents Backup"
+source = "/Users/your_username/Documents"
+destination = "/Volumes/MyUSB/Backups/Documents"
+exclude = ["*.tmp", "node_modules/"]
+
+[jobs.retention_policy]
+keep_daily = 7
+keep_weekly = 4
+keep_monthly = 6
+keep_yearly = 3
+
+# Second backup job: Backup photos with default retention
+[[jobs]]
+name = "Photos Backup"
+source = "/Users/your_username/Pictures"
+destination = "/Volumes/MyUSB/Backups/Photos"
+# This job will use the default retention policy:
+# daily=7, weekly=4, monthly=12, yearly=5
+
+# Third backup job: Backup projects with a minimal retention policy
+[[jobs]]
+name = "Projects Backup"
+source = "/Users/your_username/Developer/Projects"
+destination = "/Volumes/MyUSB/Backups/Projects"
+exclude = ["target/", "build/"]
+
+[jobs.retention_policy]
+keep_daily = 3
+keep_weekly = 1
+keep_monthly = 1
+keep_yearly = 0
+```
+
+### 2. Build and Run
 
 1.  **Clone the repository:**
     ```bash
-    git clone https://github.com/your-username/rrsync.git # (Replace with actual repo URL)
+    git clone https://github.com/jerrych0/rrsync.git
     cd rrsync
     ```
 2.  **Build the project:**
@@ -35,50 +82,36 @@
     ```
 3.  **Run a backup:**
 
-    To perform a backup from `/path/to/source` to `/path/to/destination`:
+    Use the `-c` or `--config` flag to point to your configuration file.
     ```bash
-    ./target/release/rrsync -s /path/to/source -d /path/to/destination
-    ```
-    Replace `/path/to/source` and `/path/to/destination` with your actual directories.
-
-    **Example:**
-    ```bash
-    mkdir -p /tmp/my_source
-    echo "This is file1" > /tmp/my_source/file1.txt
-    echo "This is file2" > /tmp/my_source/file2.txt
-    mkdir -p /tmp/my_destination
-
-    ./target/release/rrsync -s /tmp/my_source -d /tmp/my_destination
-    # Run again to create an incremental backup
-    echo "New content for file1" > /tmp/my_source/file1.txt
-    echo "This is file3" > /tmp/my_source/file3.txt
-    ./target/release/rrsync -s /tmp/my_source -d /tmp/my_destination
+    ./target/release/rrsync --config /path/to/your/config.toml
     ```
 
-    You can then inspect `/tmp/my_destination` to see the timestamped backup directories.
+### 3. Perform a Dry Run (Recommended)
+
+Before running a real backup, use the `--dry-run` flag to preview the actions that `rrsync` will take. This will print the `rsync` commands and the list of backups that would be deleted, without making any changes.
+
+```bash
+./target/release/rrsync --config /path/to/your/config.toml --dry-run
+```
 
 ## Testing
-
-### Unit Tests
 
 To run the unit tests (which do not interact with the actual filesystem):
 ```bash
 cargo test
 ```
 
-### Integration Tests (Planned)
-
-Integration tests will involve actual filesystem interaction and running the compiled `rrsync` binary. These are planned for future development.
-
 ## Development Phases (Roadmap)
 
 *   **Phase 1: Core Functionality** (Completed)
-    *   CLI argument parsing and configuration loading.
-    *   `rsync` command orchestration with `--link-dest` for incremental backups.
-    *   Finding the latest backup in the destination.
-*   **Phase 2: Retention Policy** (Next)
-    *   Implement logic to automatically prune old backups based on user-defined policies (e.g., keep 7 daily, 4 weekly).
-*   **Phase 3: Smart Space Management**
+    *   CLI argument parsing and single-job configuration.
+    *   `rsync` command orchestration with `--link-dest`.
+*   **Phase 2: Multi-Job & Retention Policy** (Completed)
+    *   Support for multiple backup jobs via `config.toml`.
+    *   Implemented tiered retention policy (daily, weekly, monthly, yearly).
+    *   Added `--dry-run` mode for safe execution previews.
+*   **Phase 3: Smart Space Management** (Next)
     *   Add an optional feature to intelligently delete backups when disk space is low.
 *   **Phase 4: Pure Rust Transition**
     *   Investigate replacing the external `rsync` dependency with a pure-Rust implementation.
