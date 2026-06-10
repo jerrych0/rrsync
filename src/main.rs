@@ -1,6 +1,6 @@
 // src/main.rs
 mod config;
-mod orchestrator; 
+mod orchestrator;
 
 use clap::Parser;
 use anyhow::Result;
@@ -9,42 +9,39 @@ use std::path::PathBuf;
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
 struct Args {
-    /// Source directory to backup
-    #[arg(short, long, value_name = "DIR")]
-    source: Option<PathBuf>,
-
-    /// Destination directory for backups
-    #[arg(short, long, value_name = "DIR")]
-    destination: Option<PathBuf>,
-
     /// Path to a configuration file
     #[arg(short, long, value_name = "FILE")]
-    config: Option<PathBuf>,
+    config: PathBuf,
+
+    /// Perform a dry run without making any actual changes
+    #[arg(long)]
+    dry_run: bool,
 }
 
 fn main() -> Result<()> {
     let args = Args::parse();
 
-    let (source, destination) = if let Some(config_path) = args.config {
-        let cfg = config::Config::load(&config_path)?;
-        (cfg.source, cfg.destination)
-    } else {
-        let src = args.source.ok_or_else(|| anyhow::anyhow!("Source directory not provided"))?;
-        let dest = args.destination.ok_or_else(|| anyhow::anyhow!("Destination directory not provided"))?;
-        (src, dest)
-    };
+    let cfg = config::Config::load(&args.config)?;
 
-    println!("Source: {:?}", source);
-    println!("Destination: {:?}", destination);
+    for job in cfg.jobs {
+        println!("
+--- Running backup job: {} ---", job.name);
+        println!("Source: {:?}", job.source);
+        println!("Destination: {:?}", job.destination);
+        // Exclude patterns from job can be passed to orchestrator later if needed
 
-    // Create and run the orchestrator
-    let real_executor = orchestrator::RealCommandExecutor; // Owned by main
-    let orchestrator = orchestrator::Orchestrator::new(
-        &real_executor, // Pass a reference
-        source,
-        destination,
-    );
-    orchestrator.run_backup()?;
+        let real_executor = orchestrator::RealCommandExecutor;
+        let orchestrator = orchestrator::Orchestrator::new(
+            &real_executor,
+            job.source,
+            job.destination,
+            job.exclude,
+            &job.retention_policy,
+            args.dry_run, // Pass the dry_run flag
+        );
+        orchestrator.run_backup()?;
+        println!("--- Backup job '{}' completed successfully. ---", job.name);
+    }
 
     Ok(())
 }
